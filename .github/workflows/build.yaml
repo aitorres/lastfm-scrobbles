@@ -3,6 +3,7 @@ name: Build and Publish Image
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -37,13 +38,16 @@ jobs:
 
       - name: Generate image metadata
         id: meta
-        uses: docker/metadata-action@8e5442c4ef9f78752691de647833f375fb34ddf0 # v5.5.1
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix=sha-,format=short
             type=ref,event=branch
             type=ref,event=pr,prefix=pr-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
