@@ -73,8 +73,11 @@ type LastFMNowPlaying struct {
 				// Text represents the name of the album.
 				Text string `json:"#text"`
 			} `json:"album"`
-			// NowPlaying indicates whether the track is currently being played.
-			NowPlaying string `json:"@attr,omitempty"`
+			// Attr contains track attributes, such as whether it's currently playing.
+			Attr struct {
+				// NowPlaying indicates whether the track is currently being played.
+				NowPlaying string `json:"nowplaying,omitempty"`
+			} `json:"@attr,omitempty"`
 		} `json:"track"`
 	} `json:"recenttracks"`
 	// Error is the error code returned by the Last.fm API, if any.
@@ -193,7 +196,7 @@ func (s *Server) fetchNowPlayingFromLastFM() (*ScrobblingResponse, error) {
 
 	if len(lastFMData.RecentTracks.Track) > 0 {
 		track := lastFMData.RecentTracks.Track[0]
-		if track.NowPlaying != "" {
+		if track.Attr.NowPlaying != "" {
 			scrobbling.IsScrobbling = true
 			scrobbling.Track = track.Name
 			scrobbling.Artist = track.Artist.Text
