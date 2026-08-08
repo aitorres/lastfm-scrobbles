@@ -211,18 +211,7 @@ func TestFetchNowPlayingFromLastFMSuccess(t *testing.T) {
 		response := LastFMNowPlaying{
 			Error: 0,
 		}
-		response.RecentTracks.Track = make([]struct {
-			Name   string `json:"name"`
-			Artist struct {
-				Text string `json:"#text"`
-			} `json:"artist"`
-			Album struct {
-				Text string `json:"#text"`
-			} `json:"album"`
-			Attr struct {
-				NowPlaying string `json:"nowplaying,omitempty"`
-			} `json:"@attr,omitempty"`
-		}, 1)
+		response.RecentTracks.Track = make([]Track, 1)
 
 		response.RecentTracks.Track[0].Name = "Test Song"
 		response.RecentTracks.Track[0].Artist.Text = "Test Artist"
@@ -258,18 +247,7 @@ func TestFetchNowPlayingFromLastFMNoTrack(t *testing.T) {
 		response := LastFMNowPlaying{
 			Error: 0,
 		}
-		response.RecentTracks.Track = make([]struct {
-			Name   string `json:"name"`
-			Artist struct {
-				Text string `json:"#text"`
-			} `json:"artist"`
-			Album struct {
-				Text string `json:"#text"`
-			} `json:"album"`
-			Attr struct {
-				NowPlaying string `json:"nowplaying,omitempty"`
-			} `json:"@attr,omitempty"`
-		}, 0)
+		response.RecentTracks.Track = make([]Track, 0)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
@@ -320,18 +298,7 @@ func TestHandleGetIsScrobblingSuccess(t *testing.T) {
 		response := LastFMNowPlaying{
 			Error: 0,
 		}
-		response.RecentTracks.Track = make([]struct {
-			Name   string `json:"name"`
-			Artist struct {
-				Text string `json:"#text"`
-			} `json:"artist"`
-			Album struct {
-				Text string `json:"#text"`
-			} `json:"album"`
-			Attr struct {
-				NowPlaying string `json:"nowplaying,omitempty"`
-			} `json:"@attr,omitempty"`
-		}, 1)
+		response.RecentTracks.Track = make([]Track, 1)
 
 		response.RecentTracks.Track[0].Name = "Test Song"
 		response.RecentTracks.Track[0].Artist.Text = "Test Artist"
@@ -383,18 +350,7 @@ func TestHandleGetIsScrobblingWithMissingTrack(t *testing.T) {
 		response := LastFMNowPlaying{
 			Error: 0,
 		}
-		response.RecentTracks.Track = make([]struct {
-			Name   string `json:"name"`
-			Artist struct {
-				Text string `json:"#text"`
-			} `json:"artist"`
-			Album struct {
-				Text string `json:"#text"`
-			} `json:"album"`
-			Attr struct {
-				NowPlaying string `json:"nowplaying,omitempty"`
-			} `json:"@attr,omitempty"`
-		}, 1)
+		response.RecentTracks.Track = make([]Track, 1)
 
 		response.RecentTracks.Track[0].Name = "Test Song"
 		response.RecentTracks.Track[0].Artist.Text = "Test Artist"

@@ -54,31 +54,43 @@ type Server struct {
 	baseURL string
 }
 
+// TrackAttr represents the attributes of a track, such as whether it's currently playing.
+type TrackAttr struct {
+	// NowPlaying indicates whether the track is currently being played.
+	NowPlaying string `json:"nowplaying,omitempty"`
+}
+
+// TrackArtist represents information about a track's artist.
+type TrackArtist struct {
+	// Text represents the name of the artist.
+	Text string `json:"#text"`
+}
+
+// TrackAlbum represents information about a track's album.
+type TrackAlbum struct {
+	// Text represents the name of the album.
+	Text string `json:"#text"`
+}
+
+// Track represents a single track from the Last.fm API.
+type Track struct {
+	// Name is the name of the track.
+	Name string `json:"name"`
+	// Artist contains the artist information for the track.
+	Artist TrackArtist `json:"artist"`
+	// Album contains the album information for the track.
+	Album TrackAlbum `json:"album"`
+	// Attr contains track attributes, such as whether it's currently playing.
+	Attr TrackAttr `json:"@attr,omitempty"`
+}
+
 // LastFMNowPlaying represents a response from the Last.fm API for
 // the "user.getrecenttracks" method, including recent tracks and any error information.
 type LastFMNowPlaying struct {
 	// RecentTracks contains the list of recently played tracks for the user.
 	RecentTracks struct {
 		// Track is a list of tracks and their information.
-		Track []struct {
-			// Name is the name of the track.
-			Name string `json:"name"`
-			// Artist contains the artist information for the track.
-			Artist struct {
-				// Text represents the name of the artist.
-				Text string `json:"#text"`
-			} `json:"artist"`
-			// Album contains the album information for the track.
-			Album struct {
-				// Text represents the name of the album.
-				Text string `json:"#text"`
-			} `json:"album"`
-			// Attr contains track attributes, such as whether it's currently playing.
-			Attr struct {
-				// NowPlaying indicates whether the track is currently being played.
-				NowPlaying string `json:"nowplaying,omitempty"`
-			} `json:"@attr,omitempty"`
-		} `json:"track"`
+		Track []Track `json:"track"`
 	} `json:"recenttracks"`
 	// Error is the error code returned by the Last.fm API, if any.
 	Error int `json:"error"`
