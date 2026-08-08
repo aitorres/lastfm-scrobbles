@@ -126,6 +126,22 @@ func NewServer() *Server {
 	}
 }
 
+// withCORS applies CORS headers to all responses and handles preflight requests.
+func (s *Server) withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // checkRateLimit reports whether the client with the given IP address is allowed to make
 // request, based on the current rate limit settings, and updates the rate limit bucket accordingly.
 func (s *Server) checkRateLimit(clientIP string) bool {
@@ -266,10 +282,12 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 // Start is the entry point for the server, which sets up the HTTP handler and
 // starts listening on the specified address.
 func (s *Server) Start(addr string) error {
-	http.HandleFunc("/health", s.handleHealth)
-	http.HandleFunc("/is-scrobbling", s.handleGetIsScrobbling)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/is-scrobbling", s.handleGetIsScrobbling)
+	handler := s.withCORS(mux)
 	log.Printf("Server starting on %s", addr)
-	return http.ListenAndServe(addr, nil)
+	return http.ListenAndServe(addr, handler)
 }
 
 // main is the entry point of the application when run as a standalone program,
