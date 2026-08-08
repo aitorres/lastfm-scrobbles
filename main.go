@@ -204,6 +204,18 @@ func (s *Server) fetchNowPlayingFromLastFM() (*ScrobblingResponse, error) {
 	return scrobbling, nil
 }
 
+// handleHealth handles HTTP GET requests to the "/health" endpoint,
+// which returns the health status of the server.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 // handleGetIsScrobbling handles HTTP GET requests to the "/is-scrobbling" endpoint,
 // which returns the current scrobbling status of the Last.fm user in JSON format.
 func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
@@ -239,6 +251,7 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 // Start is the entry point for the server, which sets up the HTTP handler and
 // starts listening on the specified address.
 func (s *Server) Start(addr string) error {
+	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/is-scrobbling", s.handleGetIsScrobbling)
 	log.Printf("Server starting on %s", addr)
 	return http.ListenAndServe(addr, nil)

@@ -492,3 +492,39 @@ func TestFetchNowPlayingFromLastFMInvalidJSON(t *testing.T) {
 		t.Error("Should error on invalid JSON")
 	}
 }
+
+func TestHandleHealthSuccess(t *testing.T) {
+	server := NewServer()
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	server.handleHealth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	var response map[string]string
+	err := json.NewDecoder(w.Body).Decode(&response)
+	if err != nil {
+		t.Errorf("Failed to parse response: %v", err)
+	}
+
+	if response["status"] != "ok" {
+		t.Errorf("Expected status 'ok', got '%s'", response["status"])
+	}
+}
+
+func TestHandleHealthMethodNotAllowed(t *testing.T) {
+	server := NewServer()
+
+	req := httptest.NewRequest("POST", "/health", nil)
+	w := httptest.NewRecorder()
+
+	server.handleHealth(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", w.Code)
+	}
+}
