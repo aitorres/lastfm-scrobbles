@@ -18,7 +18,7 @@ const (
 	// cacheTTL defines how long the cached response from Last.fm is valid.
 	cacheTTL = 90 * time.Second
 	// rateLimit defines the maximum number of requests allowed per minute per IP address.
-	rateLimit = 10
+	rateLimit = 90
 	// rateLimitWindow defines the time window for rate limiting.
 	rateLimitWindow = 1 * time.Minute
 )
