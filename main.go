@@ -23,13 +23,6 @@ const (
 	rateLimitWindow = 1 * time.Minute
 )
 
-// CacheEntry represents a cached response from the Last.fm API,
-// including its data and the expiration time.
-type CacheEntry struct {
-	Data      any
-	ExpiresAt time.Time
-}
-
 // RateLimitBucket keeps track of the number of requests made by a client.
 type RateLimitBucket struct {
 	// Count is the number of requests made in the current window.
@@ -41,9 +34,11 @@ type RateLimitBucket struct {
 // Server represents the state of the HTTP server, including its cache, rate limiting buckets,
 // Last.fm credentials, and the HTTP client for outgoing API requests.
 type Server struct {
-	// cache maps a cache key to its corresponding [CacheEntry].
-	cache map[string]CacheEntry
-	// cacheMu protects access to the cache map via a read-write mutex.
+	// cachedResponse stores the cached scrobbling response from Last.fm.
+	cachedResponse *ScrobblingResponse
+	// cachedExpiresAt is the expiration time of the cached response.
+	cachedExpiresAt time.Time
+	// cacheMu protects access to the cached response via a read-write mutex.
 	cacheMu sync.RWMutex
 	// rateLimitBuckets maps a client IP address to its corresponding [RateLimitBucket].
 	rateLimitBuckets map[string]*RateLimitBucket
@@ -108,7 +103,6 @@ type ScrobblingResponse struct {
 // and credentials fetched from environment variables, so it's ready to handle requests.
 func NewServer() *Server {
 	return &Server{
-		cache:            make(map[string]CacheEntry),
 		rateLimitBuckets: make(map[string]*RateLimitBucket),
 		username:         os.Getenv("LASTFM_USERNAME"),
 		apiKey:           os.Getenv("LASTFM_API_KEY"),
@@ -142,32 +136,25 @@ func (s *Server) checkRateLimit(clientIP string) bool {
 	return false
 }
 
-// getFromCache retrieves a cached response for the given key, if it exists and is still valid.
-func (s *Server) getFromCache(key string) (any, bool) {
+// getFromCache retrieves the cached response if it exists and is still valid.
+func (s *Server) getFromCache() (*ScrobblingResponse, bool) {
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
 
-	entry, exists := s.cache[key]
-	if !exists {
+	if s.cachedResponse == nil || time.Now().After(s.cachedExpiresAt) {
 		return nil, false
 	}
 
-	if time.Now().After(entry.ExpiresAt) {
-		return nil, false
-	}
-
-	return entry.Data, true
+	return s.cachedResponse, true
 }
 
-// setCache stores a response in the cache with the given key and sets its expiration time.
-func (s *Server) setCache(key string, data any) {
+// setCache stores the response in the cache with an expiration time.
+func (s *Server) setCache(response *ScrobblingResponse) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
-	s.cache[key] = CacheEntry{
-		Data:      data,
-		ExpiresAt: time.Now().Add(cacheTTL),
-	}
+	s.cachedResponse = response
+	s.cachedExpiresAt = time.Now().Add(cacheTTL)
 }
 
 // fetchNowPlayingFromLastFM makes a request to the Last.fm API to fetch the most recent track
@@ -233,8 +220,7 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	cacheKey := "is_scrobbling"
-	if cached, exists := s.getFromCache(cacheKey); exists {
+	if cached, exists := s.getFromCache(); exists {
 		json.NewEncoder(w).Encode(cached)
 		return
 	}
@@ -246,7 +232,7 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.setCache(cacheKey, result)
+	s.setCache(result)
 	json.NewEncoder(w).Encode(result)
 }
 

@@ -48,43 +48,44 @@ func TestRateLimitDifferentIPs(t *testing.T) {
 
 func TestCacheSetGet(t *testing.T) {
 	server := NewServer()
-	key := "test_key"
-	value := "test_value"
+	response := &ScrobblingResponse{
+		IsScrobbling: true,
+		Track:        "Test Track",
+	}
 
-	server.setCache(key, value)
+	server.setCache(response)
 
-	cached, exists := server.getFromCache(key)
+	cached, exists := server.getFromCache()
 	if !exists {
 		t.Error("Cache entry should exist")
 	}
 
-	if cached.(string) != value {
-		t.Errorf("Expected %v, got %v", value, cached)
+	if cached.Track != response.Track {
+		t.Errorf("Expected %v, got %v", response.Track, cached.Track)
 	}
 }
 
 func TestCacheExpiration(t *testing.T) {
 	server := NewServer()
-	key := "test_key"
-	value := "test_value"
+	response := &ScrobblingResponse{
+		IsScrobbling: true,
+		Track:        "Test Song",
+	}
 
-	server.setCache(key, value)
+	server.setCache(response)
 
 	// Entry should exist immediately
-	_, exists := server.getFromCache(key)
+	_, exists := server.getFromCache()
 	if !exists {
 		t.Error("Cache entry should exist")
 	}
 
 	// Manually expire the entry by setting past time
 	server.cacheMu.Lock()
-	server.cache[key] = CacheEntry{
-		Data:      value,
-		ExpiresAt: time.Now().Add(-1 * time.Second),
-	}
+	server.cachedExpiresAt = time.Now().Add(-1 * time.Second)
 	server.cacheMu.Unlock()
 
-	_, exists = server.getFromCache(key)
+	_, exists = server.getFromCache()
 	if exists {
 		t.Error("Cache entry should have expired")
 	}
@@ -102,7 +103,7 @@ func TestHandleGetIsScrobblingCacheHit(t *testing.T) {
 		Artist:       "Test Artist",
 		Album:        "Test Album",
 	}
-	server.setCache("is_scrobbling", cachedResponse)
+	server.setCache(cachedResponse)
 
 	req := httptest.NewRequest("GET", "/is-scrobbling", nil)
 	w := httptest.NewRecorder()
@@ -188,20 +189,20 @@ func TestScrobblingResponseJSON(t *testing.T) {
 func TestNewServer(t *testing.T) {
 	server := NewServer()
 
-	if server.cache == nil {
-		t.Error("Cache should be initialized")
-	}
 	if server.rateLimitBuckets == nil {
 		t.Error("Rate limit buckets should be initialized")
+	}
+	if server.httpClient == nil {
+		t.Error("HTTP client should be initialized")
 	}
 }
 
 func TestCacheNotFound(t *testing.T) {
 	server := NewServer()
 
-	_, exists := server.getFromCache("nonexistent_key")
+	_, exists := server.getFromCache()
 	if exists {
-		t.Error("Cache entry should not exist for nonexistent key")
+		t.Error("Cache entry should not exist for new server")
 	}
 }
 
@@ -362,11 +363,11 @@ func TestHandleGetIsScrobblingSuccess(t *testing.T) {
 	}
 
 	// Verify cache was populated
-	cached, exists := server.getFromCache("is_scrobbling")
+	cached, exists := server.getFromCache()
 	if !exists {
 		t.Error("Response should be cached")
 	}
-	if cachedResp, ok := cached.(*ScrobblingResponse); !ok || !cachedResp.IsScrobbling {
+	if !cached.IsScrobbling {
 		t.Error("Cached response should match API response")
 	}
 }
