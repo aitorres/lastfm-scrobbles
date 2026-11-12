@@ -65,6 +65,34 @@ func TestCacheSetGet(t *testing.T) {
 	}
 }
 
+func TestRefreshCache(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"recenttracks":{"track":[{"name":"Fresh Track","artist":{"#text":"Fresh Artist"},"album":{"#text":"Fresh Album"},"@attr":{"nowplaying":"true"}}]}}`))
+	}))
+	defer mockServer.Close()
+
+	server := NewServer()
+	server.httpClient = mockServer.Client()
+	server.baseURL = mockServer.URL
+	server.refreshCache()
+
+	cached, exists := server.getFromCache()
+	if !exists {
+		t.Fatal("Refreshed response should be cached")
+	}
+	if cached.Track != "Fresh Track" {
+		t.Errorf("Expected fresh track, got %q", cached.Track)
+	}
+
+	server.cacheMu.RLock()
+	expiresAt := server.cachedExpiresAt
+	server.cacheMu.RUnlock()
+	if time.Until(expiresAt) <= 0 {
+		t.Error("Refreshed response should have a future expiration")
+	}
+}
+
 func TestCacheExpiration(t *testing.T) {
 	server := NewServer()
 	response := &ScrobblingResponse{

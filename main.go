@@ -188,6 +188,27 @@ func (s *Server) setCache(response *ScrobblingResponse) {
 	s.cachedExpiresAt = time.Now().Add(cacheTTL)
 }
 
+func (s *Server) refreshCache() {
+	response, err := s.fetchNowPlayingFromLastFM()
+	if err != nil {
+		log.Printf("Failed to refresh Last.fm cache: %v", err)
+		return
+	}
+
+	s.setCache(response)
+}
+
+func (s *Server) refreshCachePeriodically() {
+	s.refreshCache()
+
+	ticker := time.NewTicker(cacheTTL * 2 / 3)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.refreshCache()
+	}
+}
+
 // fetchNowPlayingFromLastFM makes a request to the Last.fm API to fetch the most recent track
 // played by the user and returns a [ScrobblingResponse] with the response.
 func (s *Server) fetchNowPlayingFromLastFM() (*ScrobblingResponse, error) {
@@ -282,6 +303,8 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 // Start is the entry point for the server, which sets up the HTTP handler and
 // starts listening on the specified address.
 func (s *Server) Start(addr string) error {
+	go s.refreshCachePeriodically()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/is-scrobbling", s.handleGetIsScrobbling)
