@@ -2,11 +2,28 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read([]byte) (int, error) {
+	return 0, errors.New("read failed")
+}
+
+func (failingReadCloser) Close() error {
+	return nil
+}
 
 func TestRateLimit(t *testing.T) {
 	server := NewServer()
@@ -90,6 +107,29 @@ func TestRefreshCache(t *testing.T) {
 	server.cacheMu.RUnlock()
 	if time.Until(expiresAt) <= 0 {
 		t.Error("Refreshed response should have a future expiration")
+	}
+}
+
+func TestRefreshCacheDoesNotReplaceCacheOnFetchError(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"error":6,"message":"User not found"}`))
+	}))
+	defer mockServer.Close()
+
+	server := NewServer()
+	server.httpClient = mockServer.Client()
+	server.baseURL = mockServer.URL
+	previous := &ScrobblingResponse{IsScrobbling: true, Track: "Cached Track"}
+	server.setCache(previous)
+
+	server.refreshCache()
+
+	cached, exists := server.getFromCache()
+	if !exists {
+		t.Fatal("Existing cache entry should remain available after refresh failure")
+	}
+	if cached != previous {
+		t.Errorf("Refresh failure replaced cached response: got %#v, want %#v", cached, previous)
 	}
 }
 
@@ -505,6 +545,24 @@ func TestFetchNowPlayingFromLastFMInvalidJSON(t *testing.T) {
 	_, err := server.fetchNowPlayingFromLastFM()
 	if err == nil {
 		t.Error("Should error on invalid JSON")
+	}
+}
+
+func TestFetchNowPlayingFromLastFMReadError(t *testing.T) {
+	server := NewServer()
+	server.httpClient = &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       failingReadCloser{},
+			}, nil
+		}),
+	}
+
+	_, err := server.fetchNowPlayingFromLastFM()
+	if err == nil || err.Error() != "failed to read response: read failed" {
+		t.Errorf("Expected response read error, got %v", err)
 	}
 }
 
