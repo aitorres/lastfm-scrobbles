@@ -66,20 +66,12 @@ type TrackArtist struct {
 	Text string `json:"#text"`
 }
 
-// TrackAlbum represents information about a track's album.
-type TrackAlbum struct {
-	// Text represents the name of the album.
-	Text string `json:"#text"`
-}
-
 // Track represents a single track from the Last.fm API.
 type Track struct {
 	// Name is the name of the track.
 	Name string `json:"name"`
 	// Artist contains the artist information for the track.
 	Artist TrackArtist `json:"artist"`
-	// Album contains the album information for the track.
-	Album TrackAlbum `json:"album"`
 	// Attr contains track attributes, such as whether it's currently playing.
 	Attr TrackAttr `json:"@attr,omitempty"`
 }
@@ -107,8 +99,6 @@ type ScrobblingResponse struct {
 	Track string `json:"track,omitempty"`
 	// Artist is the name of the artist of the currently scrobbling track, if any.
 	Artist string `json:"artist,omitempty"`
-	// Album is the name of the album of the currently scrobbling track, if any.
-	Album string `json:"album,omitempty"`
 	// Error is an optional error message returned by the server if an error
 	// occurred while fetching the scrobbling status.
 	Error string `json:"error,omitempty"`
@@ -249,7 +239,6 @@ func (s *Server) fetchNowPlayingFromLastFM() (*ScrobblingResponse, error) {
 			scrobbling.IsScrobbling = true
 			scrobbling.Track = track.Name
 			scrobbling.Artist = track.Artist.Text
-			scrobbling.Album = track.Album.Text
 		}
 	}
 

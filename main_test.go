@@ -169,7 +169,6 @@ func TestHandleGetIsScrobblingCacheHit(t *testing.T) {
 		IsScrobbling: true,
 		Track:        "Test Track",
 		Artist:       "Test Artist",
-		Album:        "Test Album",
 	}
 	server.setCache(cachedResponse)
 
@@ -251,7 +250,6 @@ func TestScrobblingResponseJSON(t *testing.T) {
 		IsScrobbling: true,
 		Track:        "Song",
 		Artist:       "Artist",
-		Album:        "Album",
 	}
 
 	data, err := json.Marshal(response)
@@ -301,7 +299,6 @@ func TestFetchNowPlayingFromLastFMSuccess(t *testing.T) {
 
 		response.RecentTracks.Track[0].Name = "Test Song"
 		response.RecentTracks.Track[0].Artist.Text = "Test Artist"
-		response.RecentTracks.Track[0].Album.Text = "Test Album"
 		response.RecentTracks.Track[0].Attr.NowPlaying = "true"
 
 		w.Header().Set("Content-Type", "application/json")
@@ -388,7 +385,6 @@ func TestHandleGetIsScrobblingSuccess(t *testing.T) {
 
 		response.RecentTracks.Track[0].Name = "Test Song"
 		response.RecentTracks.Track[0].Artist.Text = "Test Artist"
-		response.RecentTracks.Track[0].Album.Text = "Test Album"
 		response.RecentTracks.Track[0].Attr.NowPlaying = "true"
 
 		w.Header().Set("Content-Type", "application/json")
@@ -445,7 +441,6 @@ func TestHandleGetIsScrobblingWithMissingTrack(t *testing.T) {
 
 		response.RecentTracks.Track[0].Name = "Test Song"
 		response.RecentTracks.Track[0].Artist.Text = "Test Artist"
-		response.RecentTracks.Track[0].Album.Text = "Test Album"
 		// No Attr.NowPlaying attribute set
 
 		w.Header().Set("Content-Type", "application/json")
@@ -689,8 +684,5 @@ func TestFetchNowPlayingFromLastFMRealAPIResponse(t *testing.T) {
 	}
 	if result.Artist != "brakence" {
 		t.Errorf("Expected artist 'brakence', got %s", result.Artist)
-	}
-	if result.Album != "Rosier" {
-		t.Errorf("Expected album 'Rosier', got %s", result.Album)
 	}
 }
