@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -97,5 +98,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.setWebhookCache(response)
+	if response.IsScrobbling {
+		log.Printf("Webhook update: now playing %q by %s", response.Track, response.Artist)
+	} else {
+		log.Printf("Webhook update: playback stopped")
+	}
 	w.WriteHeader(http.StatusOK)
 }
