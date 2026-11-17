@@ -4,15 +4,11 @@
 package main
 
 import (
-	"bytes"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -24,10 +20,6 @@ const (
 	rateLimit = 90
 	// rateLimitWindow defines the time window for rate limiting.
 	rateLimitWindow = 1 * time.Minute
-	// webhookPath is the URL path for the webhook endpoint.
-	webhookPath = "/webhook"
-	// webhookKeyHeader is the HTTP header used to pass the webhook API key.
-	webhookKeyHeader = "X-API-Key"
 )
 
 // RateLimitBucket keeps track of the number of requests made by a client.
@@ -61,42 +53,6 @@ type Server struct {
 	httpClient *http.Client
 	// baseURL is the base URL for the Last.fm API.
 	baseURL string
-}
-
-// TrackAttr represents the attributes of a track, such as whether it's currently playing.
-type TrackAttr struct {
-	// NowPlaying indicates whether the track is currently being played.
-	NowPlaying string `json:"nowplaying,omitempty"`
-}
-
-// TrackArtist represents information about a track's artist.
-type TrackArtist struct {
-	// Text represents the name of the artist.
-	Text string `json:"#text"`
-}
-
-// Track represents a single track from the Last.fm API.
-type Track struct {
-	// Name is the name of the track.
-	Name string `json:"name"`
-	// Artist contains the artist information for the track.
-	Artist TrackArtist `json:"artist"`
-	// Attr contains track attributes, such as whether it's currently playing.
-	Attr TrackAttr `json:"@attr,omitempty"`
-}
-
-// LastFMNowPlaying represents a response from the Last.fm API for
-// the "user.getrecenttracks" method, including recent tracks and any error information.
-type LastFMNowPlaying struct {
-	// RecentTracks contains the list of recently played tracks for the user.
-	RecentTracks struct {
-		// Track is a list of tracks and their information.
-		Track []Track `json:"track"`
-	} `json:"recenttracks"`
-	// Error is the error code returned by the Last.fm API, if any.
-	Error int `json:"error"`
-	// Message is the error message returned by the Last.fm API, if any.
-	Message string `json:"message"`
 }
 
 // ScrobblingResponse represents the response returned by the server's "/is-scrobbling" endpoint,
@@ -207,73 +163,6 @@ func (s *Server) validateConfig() error {
 	return nil
 }
 
-func (s *Server) refreshCache() {
-	response, err := s.fetchNowPlayingFromLastFM()
-	if err != nil {
-		log.Printf("Failed to refresh Last.fm cache: %v", err)
-		return
-	}
-
-	s.setCache(response)
-}
-
-func (s *Server) refreshCachePeriodically() {
-	s.refreshCache()
-
-	ticker := time.NewTicker(cacheTTL * 2 / 3)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		s.refreshCache()
-	}
-}
-
-// fetchNowPlayingFromLastFM makes a request to the Last.fm API to fetch the most recent track
-// played by the user and returns a [ScrobblingResponse] with the response.
-func (s *Server) fetchNowPlayingFromLastFM() (*ScrobblingResponse, error) {
-	url := fmt.Sprintf(
-		"%s?method=user.getrecenttracks&user=%s&api_key=%s&format=json&limit=1",
-		s.baseURL,
-		s.username,
-		s.apiKey,
-	)
-
-	resp, err := s.httpClient.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch from last.fm: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var lastFMData LastFMNowPlaying
-	if err := json.Unmarshal(body, &lastFMData); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if lastFMData.Error != 0 {
-		return nil, fmt.Errorf("last.fm error %d: %s", lastFMData.Error, lastFMData.Message)
-	}
-
-	scrobbling := &ScrobblingResponse{
-		IsScrobbling: false,
-	}
-
-	if len(lastFMData.RecentTracks.Track) > 0 {
-		track := lastFMData.RecentTracks.Track[0]
-		if track.Attr.NowPlaying != "" {
-			scrobbling.IsScrobbling = true
-			scrobbling.Track = track.Name
-			scrobbling.Artist = track.Artist.Text
-		}
-	}
-
-	return scrobbling, nil
-}
-
 // handleHealth handles HTTP GET requests to the "/health" endpoint,
 // which returns the health status of the server.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -320,90 +209,6 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 
 	s.setCache(result)
 	json.NewEncoder(w).Encode(result)
-}
-
-type NowPlayingWebhookPayload struct {
-	Type string          `json:"type"`
-	Play json.RawMessage `json:"play"`
-}
-
-type NowPlayingWebhookPlay struct {
-	Play struct {
-		Data struct {
-			Track struct {
-				Name string `json:"name"`
-			} `json:"track"`
-			Artists []struct {
-				Name string `json:"name"`
-			} `json:"artists"`
-		} `json:"data"`
-	} `json:"play"`
-}
-
-func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.webhookAPIKey == "" {
-		http.NotFound(w, r)
-		return
-	}
-	if subtle.ConstantTimeCompare([]byte(r.Header.Get(webhookKeyHeader)), []byte(s.webhookAPIKey)) != 1 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-	var payload NowPlayingWebhookPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
-		return
-	}
-	if payload.Type != "nowPlaying" {
-		http.Error(w, "Unsupported event type", http.StatusBadRequest)
-		return
-	}
-	if payload.Play == nil {
-		http.Error(w, "Payload must include play", http.StatusBadRequest)
-		return
-	}
-
-	response := &ScrobblingResponse{}
-	if !bytes.Equal(bytes.TrimSpace(payload.Play), []byte("null")) {
-		var play NowPlayingWebhookPlay
-		if err := json.Unmarshal(payload.Play, &play); err != nil {
-			http.Error(w, "Invalid payload", http.StatusBadRequest)
-			return
-		}
-		track := play.Play.Data.Track.Name
-		artists := play.Play.Data.Artists
-		if strings.TrimSpace(track) == "" || len(artists) == 0 {
-			http.Error(w, "Payload must include track name and at least one artist", http.StatusBadRequest)
-			return
-		}
-		artistNames := make([]string, 0, len(artists))
-		for _, artist := range artists {
-			if name := strings.TrimSpace(artist.Name); name != "" {
-				artistNames = append(artistNames, name)
-			}
-		}
-		if len(artistNames) == 0 {
-			http.Error(w, "Payload must include track name and at least one artist", http.StatusBadRequest)
-			return
-		}
-		response.IsScrobbling = true
-		response.Track = track
-		response.Artist = strings.Join(artistNames, ", ")
-	}
-
-	s.setWebhookCache(response)
-	w.WriteHeader(http.StatusOK)
 }
 
 // Start is the entry point for the server, which sets up the HTTP handler and
