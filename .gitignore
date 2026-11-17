@@ -31,4 +31,4 @@ go.work.sum
 # .idea/
 # .vscode/
 
-lastfm-scrobbles
+/lastfm-scrobbles

@@ -1,8 +1,8 @@
 FROM golang:1.27-alpine AS builder
 WORKDIR /app
 COPY go.mod .
-COPY *.go .
-RUN CGO_ENABLED=0 GOOS=linux go build -o server .
+COPY cmd/lastfm-scrobbles ./cmd/lastfm-scrobbles
+RUN CGO_ENABLED=0 GOOS=linux go build -o server ./cmd/lastfm-scrobbles
 
 FROM gcr.io/distroless/static-debian13:nonroot
 LABEL org.opencontainers.image.source=https://github.com/aitorres/lastfm-scrobbles

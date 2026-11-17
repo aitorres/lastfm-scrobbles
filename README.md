@@ -9,7 +9,7 @@ Keep your last.fm API key secret by deploying this API as a sidecar to your fron
 To run with Last.fm polling, build the Go application and set both Last.fm environment variables:
 
 ```bash
-go build -o lastfm-scrobbles main.go
+go build -o lastfm-scrobbles ./cmd/lastfm-scrobbles
 LASTFM_USERNAME=your_lastfm_username LASTFM_API_KEY=your_lastfm_api_key ./lastfm-scrobbles
 ```
 
