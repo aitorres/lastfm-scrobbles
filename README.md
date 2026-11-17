@@ -6,12 +6,20 @@ Keep your last.fm API key secret by deploying this API as a sidecar to your fron
 
 ## Usage
 
-To run locally, build the Go application and set the required environment variables, then run:
+To run with Last.fm polling, build the Go application and set both Last.fm environment variables:
 
 ```bash
 go build -o lastfm-scrobbles main.go
 LASTFM_USERNAME=your_lastfm_username LASTFM_API_KEY=your_lastfm_api_key ./lastfm-scrobbles
 ```
+
+To run with webhook updates only:
+
+```bash
+WEBHOOK_API_KEY=your_webhook_key ./lastfm-scrobbles
+```
+
+Set both Last.fm variables and `WEBHOOK_API_KEY` to enable both sources. The most recent successful update from either source replaces the shared cache. At least one complete source configuration is required.
 
 To deploy, you can build a Docker image using the provided [`Dockerfile`](./Dockerfile) or pull the pre-built image from ghcr.io:
 
@@ -21,8 +29,17 @@ docker pull ghcr.io/aitorres/lastfm-scrobbles:latest
 
 ## Environment Variables
 
-- `LASTFM_USERNAME`: last.fm username (required)
-- `LASTFM_API_KEY`: last.fm API key (required)
+- `LASTFM_USERNAME`: Last.fm username. Set with `LASTFM_API_KEY` to enable polling.
+- `LASTFM_API_KEY`: Last.fm API key. Set with `LASTFM_USERNAME` to enable polling.
+- `WEBHOOK_API_KEY`: API key for webhook updates. Enables `POST /webhook`.
+
+Send the webhook key in the `X-API-Key` header. Send only fields needed for the current track:
+
+```json
+{"type":"nowPlaying","play":{"play":{"data":{"track":{"name":"Song"},"artists":[{"name":"Artist"}]}}}}
+```
+
+Send `{"type":"nowPlaying","play":null}` to clear the current track. The webhook returns `200` after it updates the cache. In webhook-only mode, `/is-scrobbling` assumes no track is playing until the first webhook update.
 
 ## Contributing
 

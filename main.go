@@ -4,12 +4,15 @@
 package main
 
 import (
+	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,6 +24,10 @@ const (
 	rateLimit = 90
 	// rateLimitWindow defines the time window for rate limiting.
 	rateLimitWindow = 1 * time.Minute
+	// webhookPath is the URL path for the webhook endpoint.
+	webhookPath = "/webhook"
+	// webhookKeyHeader is the HTTP header used to pass the webhook API key.
+	webhookKeyHeader = "X-API-Key"
 )
 
 // RateLimitBucket keeps track of the number of requests made by a client.
@@ -48,6 +55,8 @@ type Server struct {
 	username string
 	// apiKey is the Last.fm API key used for authentication when making requests to the Last.fm API.
 	apiKey string
+	// webhookAPIKey authenticates requests to the now-playing webhook.
+	webhookAPIKey string
 	// httpClient is the HTTP client used to make requests to the Last.fm API.
 	httpClient *http.Client
 	// baseURL is the base URL for the Last.fm API.
@@ -111,6 +120,7 @@ func NewServer() *Server {
 		rateLimitBuckets: make(map[string]*RateLimitBucket),
 		username:         os.Getenv("LASTFM_USERNAME"),
 		apiKey:           os.Getenv("LASTFM_API_KEY"),
+		webhookAPIKey:    os.Getenv("WEBHOOK_API_KEY"),
 		httpClient:       &http.Client{Timeout: 10 * time.Second},
 		baseURL:          "https://ws.audioscrobbler.com/2.0/",
 	}
@@ -120,8 +130,8 @@ func NewServer() *Server {
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -162,7 +172,7 @@ func (s *Server) getFromCache() (*ScrobblingResponse, bool) {
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
 
-	if s.cachedResponse == nil || time.Now().After(s.cachedExpiresAt) {
+	if s.cachedResponse == nil || (!s.cachedExpiresAt.IsZero() && time.Now().After(s.cachedExpiresAt)) {
 		return nil, false
 	}
 
@@ -176,6 +186,25 @@ func (s *Server) setCache(response *ScrobblingResponse) {
 
 	s.cachedResponse = response
 	s.cachedExpiresAt = time.Now().Add(cacheTTL)
+}
+
+func (s *Server) setWebhookCache(response *ScrobblingResponse) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	s.cachedResponse = response
+	s.cachedExpiresAt = time.Time{}
+}
+
+func (s *Server) hasLastFMConfig() bool {
+	return s.username != "" && s.apiKey != ""
+}
+
+func (s *Server) validateConfig() error {
+	if !s.hasLastFMConfig() && s.webhookAPIKey == "" {
+		return fmt.Errorf("configure LASTFM_USERNAME and LASTFM_API_KEY, or WEBHOOK_API_KEY")
+	}
+	return nil
 }
 
 func (s *Server) refreshCache() {
@@ -277,6 +306,10 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(cached)
 		return
 	}
+	if !s.hasLastFMConfig() {
+		json.NewEncoder(w).Encode(&ScrobblingResponse{})
+		return
+	}
 
 	result, err := s.fetchNowPlayingFromLastFM()
 	if err != nil {
@@ -289,14 +322,104 @@ func (s *Server) handleGetIsScrobbling(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+type NowPlayingWebhookPayload struct {
+	Type string          `json:"type"`
+	Play json.RawMessage `json:"play"`
+}
+
+type NowPlayingWebhookPlay struct {
+	Play struct {
+		Data struct {
+			Track struct {
+				Name string `json:"name"`
+			} `json:"track"`
+			Artists []struct {
+				Name string `json:"name"`
+			} `json:"artists"`
+		} `json:"data"`
+	} `json:"play"`
+}
+
+func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.webhookAPIKey == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get(webhookKeyHeader)), []byte(s.webhookAPIKey)) != 1 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+	var payload NowPlayingWebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+	if payload.Type != "nowPlaying" {
+		http.Error(w, "Unsupported event type", http.StatusBadRequest)
+		return
+	}
+	if payload.Play == nil {
+		http.Error(w, "Payload must include play", http.StatusBadRequest)
+		return
+	}
+
+	response := &ScrobblingResponse{}
+	if !bytes.Equal(bytes.TrimSpace(payload.Play), []byte("null")) {
+		var play NowPlayingWebhookPlay
+		if err := json.Unmarshal(payload.Play, &play); err != nil {
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			return
+		}
+		track := play.Play.Data.Track.Name
+		artists := play.Play.Data.Artists
+		if strings.TrimSpace(track) == "" || len(artists) == 0 {
+			http.Error(w, "Payload must include track name and at least one artist", http.StatusBadRequest)
+			return
+		}
+		artistNames := make([]string, 0, len(artists))
+		for _, artist := range artists {
+			if name := strings.TrimSpace(artist.Name); name != "" {
+				artistNames = append(artistNames, name)
+			}
+		}
+		if len(artistNames) == 0 {
+			http.Error(w, "Payload must include track name and at least one artist", http.StatusBadRequest)
+			return
+		}
+		response.IsScrobbling = true
+		response.Track = track
+		response.Artist = strings.Join(artistNames, ", ")
+	}
+
+	s.setWebhookCache(response)
+	w.WriteHeader(http.StatusOK)
+}
+
 // Start is the entry point for the server, which sets up the HTTP handler and
 // starts listening on the specified address.
 func (s *Server) Start(addr string) error {
-	go s.refreshCachePeriodically()
+	if err := s.validateConfig(); err != nil {
+		return err
+	}
+	if s.hasLastFMConfig() {
+		go s.refreshCachePeriodically()
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/is-scrobbling", s.handleGetIsScrobbling)
+	mux.HandleFunc(webhookPath, s.handleWebhook)
 	handler := s.withCORS(mux)
 	log.Printf("Server starting on %s", addr)
 	return http.ListenAndServe(addr, handler)
@@ -306,11 +429,6 @@ func (s *Server) Start(addr string) error {
 // which initializes the server, ensures required environment variables are set, and starts the HTTP server.
 func main() {
 	server := NewServer()
-
-	if server.username == "" || server.apiKey == "" {
-		log.Fatal("LASTFM_USERNAME and LASTFM_API_KEY environment variables must be set")
-	}
-
 	if err := server.Start(":8080"); err != nil {
 		log.Fatal(err)
 	}
