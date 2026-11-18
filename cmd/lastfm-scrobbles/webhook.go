@@ -35,16 +35,23 @@ type NowPlayingWebhookPlay struct {
 	} `json:"play"`
 }
 
+func logWebhookRejection(r *http.Request, reason string) {
+	log.Printf("Webhook rejected: %s (remote=%s method=%s)", reason, r.RemoteAddr, r.Method)
+}
+
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		logWebhookRejection(r, "method not allowed")
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if s.webhookAPIKey == "" {
+		logWebhookRejection(r, "webhook is disabled")
 		http.NotFound(w, r)
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get(webhookKeyHeader)), []byte(s.webhookAPIKey)) != 1 {
+		logWebhookRejection(r, "invalid API key")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -52,19 +59,23 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		logWebhookRejection(r, "read request body: "+err.Error())
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
 		return
 	}
 	var payload NowPlayingWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
+		logWebhookRejection(r, "decode request: "+err.Error())
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
 		return
 	}
 	if payload.Type != "nowPlaying" {
+		logWebhookRejection(r, "unsupported event type")
 		http.Error(w, "Unsupported event type", http.StatusBadRequest)
 		return
 	}
 	if payload.Play == nil {
+		logWebhookRejection(r, "missing play field")
 		http.Error(w, "Payload must include play", http.StatusBadRequest)
 		return
 	}
@@ -73,12 +84,14 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if !bytes.Equal(bytes.TrimSpace(payload.Play), []byte("null")) {
 		var play NowPlayingWebhookPlay
 		if err := json.Unmarshal(payload.Play, &play); err != nil {
+			logWebhookRejection(r, "decode play data: "+err.Error())
 			http.Error(w, "Invalid payload", http.StatusBadRequest)
 			return
 		}
 		track := play.Play.Data.Track.Name
 		artists := play.Play.Data.Artists
 		if strings.TrimSpace(track) == "" || len(artists) == 0 {
+			logWebhookRejection(r, "missing track name or artists")
 			http.Error(w, "Payload must include track name and at least one artist", http.StatusBadRequest)
 			return
 		}
@@ -89,6 +102,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(artistNames) == 0 {
+			logWebhookRejection(r, "missing track name or artists")
 			http.Error(w, "Payload must include track name and at least one artist", http.StatusBadRequest)
 			return
 		}
