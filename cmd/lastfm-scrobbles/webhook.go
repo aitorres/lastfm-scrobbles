@@ -70,8 +70,8 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if payload.Type != "nowPlaying" {
-		logWebhookRejection(r, "unsupported event type")
-		http.Error(w, "Unsupported event type", http.StatusBadRequest)
+		log.Printf("Webhook event ignored: unsupported type %q (remote=%s method=%s)", payload.Type, r.RemoteAddr, r.Method)
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if payload.Play == nil {

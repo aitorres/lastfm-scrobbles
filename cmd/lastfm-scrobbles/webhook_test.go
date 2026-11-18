@@ -57,7 +57,7 @@ func TestHandleWebhookClearsCache(t *testing.T) {
 	}
 }
 
-func TestHandleWebhookRejectsInvalidKeyAndMissingPlay(t *testing.T) {
+func TestHandleWebhookValidatesRequests(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		method        string
@@ -68,7 +68,7 @@ func TestHandleWebhookRejectsInvalidKeyAndMissingPlay(t *testing.T) {
 	}{
 		{name: "invalid key", method: http.MethodPost, configuredKey: "webhook-secret", key: "wrong", body: `{"type":"nowPlaying","play":null}`, wantStatus: http.StatusUnauthorized},
 		{name: "missing play", method: http.MethodPost, configuredKey: "webhook-secret", key: "webhook-secret", body: `{"type":"nowPlaying"}`, wantStatus: http.StatusBadRequest},
-		{name: "unsupported type", method: http.MethodPost, configuredKey: "webhook-secret", key: "webhook-secret", body: `{"type":"scrobble","play":null}`, wantStatus: http.StatusBadRequest},
+		{name: "unsupported type", method: http.MethodPost, configuredKey: "webhook-secret", key: "webhook-secret", body: `{"type":"scrobble","play":null}`, wantStatus: http.StatusOK},
 		{name: "invalid JSON", method: http.MethodPost, configuredKey: "webhook-secret", key: "webhook-secret", body: `{`, wantStatus: http.StatusBadRequest},
 		{name: "missing artist", method: http.MethodPost, configuredKey: "webhook-secret", key: "webhook-secret", body: `{"type":"nowPlaying","play":{"play":{"data":{"track":{"name":"Song"}}}}}`, wantStatus: http.StatusBadRequest},
 		{name: "wrong method", method: http.MethodGet, configuredKey: "webhook-secret", key: "webhook-secret", wantStatus: http.StatusMethodNotAllowed},
@@ -86,7 +86,7 @@ func TestHandleWebhookRejectsInvalidKeyAndMissingPlay(t *testing.T) {
 				t.Errorf("Expected status %d, got %d", test.wantStatus, w.Code)
 			}
 			if _, exists := server.getFromCache(); exists {
-				t.Error("Rejected webhook must not change the cache")
+				t.Error("Invalid or ignored webhook must not change the cache")
 			}
 		})
 	}
